@@ -17,9 +17,9 @@ pub fn execute() -> Result<()> {
         );
     }
 
-    // Trova il JAR più recente in build/libs/
-    let jar_path = find_latest_jar(Path::new("build/libs"))
-        .context("No plugin jar found in build/libs/ — build your plugin first")?;
+    // Trova il JAR più recente tra build/libs/ (Gradle) e target/ (Maven)
+    let jar_path = find_latest_jar_any(&[Path::new("build/libs"), Path::new("target")])
+        .context("No plugin jar found in build/libs/ or target/ — build your plugin first")?;
 
     println!("Found jar: {}", jar_path.display());
 
@@ -47,6 +47,17 @@ pub fn execute() -> Result<()> {
 
     println!("Deployed {} -> {}", jar_path.display(), dest.display());
     Ok(())
+}
+
+/// Cerca il JAR più recente tra più directory candidate (Gradle: build/libs/, Maven: target/)
+fn find_latest_jar_any(dirs: &[&Path]) -> Option<PathBuf> {
+    dirs.iter()
+        .filter_map(|dir| find_latest_jar(dir))
+        .max_by_key(|p| {
+            p.metadata()
+                .and_then(|m| m.modified())
+                .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+        })
 }
 
 /// Trova il JAR modificato più di recente in `dir`

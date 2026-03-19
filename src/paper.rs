@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Context, Result};
+use indicatif::{ProgressBar, ProgressStyle};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs::File;
@@ -60,19 +61,36 @@ pub fn download_paper_jar(version: &str, server_dir: &Path) -> Result<()> {
         return Ok(());
     }
 
-    println!("Fetching PaperMC API...");
+    println!("  Fetching PaperMC API...");
     let api = PaperApiResponse::fetch()?;
     let url = api.download_url(version)?;
 
-    println!("Downloading Paper {} ...", version);
-    let mut response = reqwest::blocking::get(url)
+    println!("  Downloading Paper {version}...");
+    let response = reqwest::blocking::get(url)
         .with_context(|| format!("Failed to download Paper {version}"))?;
+
+    let total = response
+        .headers()
+        .get(reqwest::header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(0);
+
+    let pb = ProgressBar::new(total);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("  [{bar:40.magenta/white}] {bytes}/{total_bytes} ({eta})")
+            .unwrap()
+            .progress_chars("█▓░"),
+    );
 
     let mut file = File::create(&jar_path)
         .with_context(|| format!("Failed to create {}", jar_path.display()))?;
 
-    io::copy(&mut response, &mut file).context("Failed to write paper.jar")?;
+    let mut src = pb.wrap_read(response);
+    io::copy(&mut src, &mut file).context("Failed to write paper.jar")?;
 
-    println!("Downloaded paper.jar ({} MB)", jar_path.metadata()?.len() / 1_048_576);
+    pb.finish_and_clear();
+    println!("  paper.jar ready ({} MB).", jar_path.metadata()?.len() / 1_048_576);
     Ok(())
 }

@@ -32,6 +32,8 @@ enum Command {
     Restart,
     /// Deploy the built plugin jar into the local server's plugins folder
     Sync,
+    /// Remove the local server directory (asks for confirmation)
+    Remove,
     /// Manage Mineflayer bots for player simulation
     Bot {
         #[command(subcommand)]
@@ -121,6 +123,7 @@ fn cmd_init() -> Result<()> {
     Ok(())
 }
 
+
 // ─── Entry point ──────────────────────────────────────────────────────────────
 
 fn main() {
@@ -132,6 +135,7 @@ fn main() {
         Command::Stop => commands::stop::execute(false),
         Command::Restart => commands::stop::execute(true),
         Command::Sync => commands::sync::execute(),
+        Command::Remove => commands::remove::execute(),
         Command::Bot { action } => commands::bot::execute(match action {
             BotAction::Spawn { name } => commands::bot::BotAction::Spawn { name },
             BotAction::List => commands::bot::BotAction::List,
