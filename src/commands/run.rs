@@ -5,9 +5,9 @@ use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use crate::config::MinipotConfig;
-use crate::paper::{download_paper_jar, download_server_icon};
+use crate::commands::prepare::prepare_server;
 use crate::commands::stop::{PID_FILE, RESTART_MARKER};
+use crate::config::MinipotConfig;
 
 /// Paper stampa questa stringa quando il server è pronto a ricevere comandi.
 const SERVER_READY_SIGNAL: &str = "]: Done (";
@@ -24,32 +24,9 @@ pub fn execute() -> Result<()> {
 
     let server_dir = config.server_dir();
 
-    // ── [1/4] Cartella server ─────────────────────────────────────────────────
-    println!("[1/4] Preparing server directory...");
-    if !server_dir.exists() {
-        fs::create_dir_all(&server_dir)
-            .with_context(|| format!("Failed to create {}", server_dir.display()))?;
-    }
-    let plugins_dir = server_dir.join("plugins");
-    if !plugins_dir.exists() {
-        fs::create_dir_all(&plugins_dir).context("Failed to create plugins directory")?;
-    }
-    let eula_path = server_dir.join("eula.txt");
-    if !eula_path.exists() {
-        fs::write(&eula_path, "eula=true\n").context("Failed to write eula.txt")?;
-    }
+    prepare_server(&config, &server_dir)?;
 
-    // ── [2/4] Paper JAR ───────────────────────────────────────────────────────
-    println!("[2/4] Checking Paper {}...", config.server.version);
-    download_paper_jar(&config.server.version, &server_dir)?;
-
-    // ── [3/4] Icona server ────────────────────────────────────────────────────
-    println!("[3/4] Checking server icon...");
-    if let Err(e) = download_server_icon(&server_dir) {
-        eprintln!("Warning: could not download server icon: {e}");
-    }
-
-    // ── [4/4] Loop avvio (gestisce anche restart) ──────────────────────────────
+    // ── Loop avvio (gestisce anche restart) ───────────────────────────────────
     let mut java_args: Vec<String> = config.server.jvm_flags.clone();
     java_args.extend(["-jar".to_string(), "paper.jar".to_string(), "nogui".to_string()]);
 
@@ -61,12 +38,12 @@ pub fn execute() -> Result<()> {
         let n_cmds = startup_commands.len();
 
         println!(
-            "[4/4] Starting Paper {} on port {}...",
+            "Starting Paper {} on port {}...",
             config.server.version, config.server.port
         );
         if n_cmds > 0 {
             println!(
-                "      {n_cmds} startup command{} will run when the server is ready.",
+                "  {n_cmds} startup command{} will run when the server is ready.",
                 if n_cmds == 1 { "" } else { "s" }
             );
         }
@@ -147,7 +124,7 @@ pub fn execute() -> Result<()> {
             println!();
             println!("[Minipot] Restarting server...");
             println!();
-            continue; // riparte il loop
+            continue;
         }
 
         if !status.success() {

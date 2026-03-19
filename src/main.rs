@@ -24,6 +24,8 @@ struct Cli {
 enum Command {
     /// Initialize a new Minipot project in the current directory
     Init,
+    /// Prepare the server environment without starting it (used by the IntelliJ plugin)
+    Prepare,
     /// Start the local Paper server (downloads Paper if needed)
     Run,
     /// Stop the running Paper server gracefully
@@ -131,6 +133,7 @@ fn main() {
 
     let result = match cli.command {
         Command::Init => cmd_init(),
+        Command::Prepare => commands::prepare::execute(),
         Command::Run => commands::run::execute(),
         Command::Stop => commands::stop::execute(false),
         Command::Restart => commands::stop::execute(true),
