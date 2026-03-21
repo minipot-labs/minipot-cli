@@ -12,7 +12,12 @@ use crate::config::MinipotConfig;
 /// Paper stampa questa stringa quando il server è pronto a ricevere comandi.
 const SERVER_READY_SIGNAL: &str = "]: Done (";
 
-pub fn execute() -> Result<()> {
+/// Marker scritto dopo l'esecuzione degli startup commands.
+/// Se esiste, i comandi non vengono rieseguiti ai successivi avvii (a meno che
+/// l'utente non abbia rimosso il server con `minipot remove`).
+const STARTUP_DONE_MARKER: &str = ".minipot.startup_done";
+
+pub fn execute(force_exec_commands: bool) -> Result<()> {
     let config = MinipotConfig::load()?;
 
     if config.server.version.trim().is_empty() {
@@ -32,20 +37,29 @@ pub fn execute() -> Result<()> {
 
     let pid_path = server_dir.join(PID_FILE);
     let restart_marker = server_dir.join(RESTART_MARKER);
+    let startup_done_marker = server_dir.join(STARTUP_DONE_MARKER);
 
     loop {
         let startup_commands = config.server.startup_commands.clone();
         let n_cmds = startup_commands.len();
+        let startup_already_run = startup_done_marker.exists() && !force_exec_commands;
 
         println!(
-            "Starting Paper {} on port {}...",
+            "[Minipot] Starting Paper {} on port {}...",
             config.server.version, config.server.port
         );
         if n_cmds > 0 {
-            println!(
-                "  {n_cmds} startup command{} will run when the server is ready.",
-                if n_cmds == 1 { "" } else { "s" }
-            );
+            if startup_already_run {
+                println!(
+                    "[Minipot] Startup commands skipped —  \
+                     Run `minipot run --exec-commands` or `minipot remove` to re-run the commands."
+                );
+            } else {
+                println!(
+                    "[Minipot] {n_cmds} startup command{} will run when the server is ready.",
+                    if n_cmds == 1 { "" } else { "s" }
+                );
+            }
         }
         println!();
 
@@ -56,11 +70,11 @@ pub fn execute() -> Result<()> {
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .spawn()
-            .context("Failed to launch java — make sure it is installed and in PATH")?;
+            .context("[Minipot] Failed to launch java — make sure it is installed and in PATH")?;
 
         // Scrivi il PID così `minipot stop` e `minipot restart` possono trovare il processo
         fs::write(&pid_path, child.id().to_string())
-            .context("Failed to write PID file")?;
+            .context("[Minipot] Failed to write PID file")?;
 
         // Shared handle per scrivere sullo stdin del processo server
         let server_stdin = Arc::new(Mutex::new(child.stdin.take().unwrap()));
@@ -70,6 +84,7 @@ pub fn execute() -> Result<()> {
         let server_stdout = child.stdout.take().unwrap();
 
         // ── Thread stdout: stampa output, rileva "Done", invia startup commands ──
+        let startup_done_marker_clone = startup_done_marker.clone();
         let stdout_thread = thread::spawn(move || {
             let reader = BufReader::new(server_stdout);
             let mut commands_sent = false;
@@ -81,7 +96,7 @@ pub fn execute() -> Result<()> {
                 if !commands_sent && line.contains(SERVER_READY_SIGNAL) {
                     commands_sent = true;
 
-                    if startup_commands.is_empty() {
+                    if startup_commands.is_empty() || startup_already_run {
                         continue;
                     }
 
@@ -97,6 +112,10 @@ pub fn execute() -> Result<()> {
 
                     println!("[Minipot] Done.");
                     println!();
+
+                    // Segna che i comandi sono stati eseguiti: nei prossimi avvii
+                    // (finché il server non viene rimosso) verranno saltati.
+                    fs::write(&startup_done_marker_clone, "").ok();
                 }
             }
         });
@@ -112,7 +131,7 @@ pub fn execute() -> Result<()> {
             }
         });
 
-        let status = child.wait().context("Failed to wait for server process")?;
+        let status = child.wait().context("[Minipot] Failed to wait for server process")?;
         stdout_thread.join().ok();
 
         // Pulizia PID file
@@ -128,7 +147,7 @@ pub fn execute() -> Result<()> {
         }
 
         if !status.success() {
-            anyhow::bail!("Server exited with status: {}", status);
+            anyhow::bail!("[Minipot] Server exited with status: {}", status);
         }
 
         break;

@@ -27,7 +27,11 @@ enum Command {
     /// Prepare the server environment without starting it (used by the IntelliJ plugin)
     Prepare,
     /// Start the local Paper server (downloads Paper if needed)
-    Run,
+    Run {
+        /// Force startup commands to run even if already executed in a previous session
+        #[arg(long)]
+        exec_commands: bool,
+    },
     /// Stop the running Paper server gracefully
     Stop,
     /// Restart the running Paper server
@@ -134,7 +138,7 @@ fn main() {
     let result = match cli.command {
         Command::Init => cmd_init(),
         Command::Prepare => commands::prepare::execute(),
-        Command::Run => commands::run::execute(),
+        Command::Run { exec_commands } => commands::run::execute(exec_commands),
         Command::Stop => commands::stop::execute(false),
         Command::Restart => commands::stop::execute(true),
         Command::Sync => commands::sync::execute(),

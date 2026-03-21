@@ -21,12 +21,14 @@ minipot-cli/
 ├── src/
 │   ├── main.rs             — entry point, definizione CLI (clap), routing comandi, cmd_init()
 │   ├── config.rs           — MinipotConfig, lettura/scrittura minipot.yml
-│   ├── paper.rs            — PaperMC API fetch, download paper.jar e server-icon.png
+│   ├── paper.rs            — PaperMC API fetch, download paper.jar (progress bar) e server-icon.png
 │   └── commands/
 │       ├── mod.rs          — aggregator moduli
+│       ├── prepare.rs      — prepare_server() condivisa da run e prepare; execute() per `minipot prepare`
 │       ├── run.rs          — avvio server Paper, thread stdout/stdin, startup_commands, restart loop
 │       ├── stop.rs         — stop graceful (SIGTERM/taskkill), restart marker
-│       ├── sync.rs         — deploy plugin JAR in plugins/, versioning automatico
+│       ├── sync.rs         — deploy plugin JAR in plugins/, versioning automatico (Gradle + Maven)
+│       ├── remove.rs       — rimuove minipot-server/ con conferma interattiva
 │       └── bot.rs          — stub Mineflayer (non implementato)
 └── minipot-test/
     └── minipot.yml         — file di configurazione d'esempio per test locali
@@ -38,7 +40,7 @@ minipot-cli/
 
 ### `src/main.rs`
 - Definisce `struct Cli` e `enum Command` tramite clap derive
-- Comandi: `Init`, `Run`, `Stop`, `Restart`, `Sync`, `Bot`
+- Comandi: `Init`, `Prepare`, `Run`, `Stop`, `Restart`, `Sync`, `Remove`, `Bot`
 - Contiene `MINIPOT_YML_TEMPLATE` — il template YAML embedded nel binario
 - `fn cmd_init()` — scrive minipot.yml se non esiste già
 
@@ -54,7 +56,8 @@ minipot-cli/
 ### `src/paper.rs`
 - `PaperApiResponse` — risposta API con campo `latest` e mappa `versions`
 - `PaperApiResponse::fetch()` — GET a `https://qing762.is-a.dev/api/papermc`
-- `download_paper_jar(version, server_dir)` — scarica paper.jar se non esiste
+- `download_paper_jar(version, server_dir)` — scarica paper.jar in streaming con `indicatif::ProgressBar`; skip se già presente
+  - Stile barra: `"█▓░"` in magenta; legge `Content-Length` per la percentuale
 - `download_server_icon(server_dir)` — scarica server-icon.png da S3 Minipot
 - URL S3 icona: `https://minipot-assets.s3.eu-central-1.amazonaws.com/minipot-icon-server.png`
 
@@ -65,6 +68,8 @@ minipot-cli/
 - Thread stdin: forwarda input utente alla console Paper
 - Restart loop: controlla marker `.minipot.restart` dopo shutdown, se presente riavvia
 - Scarica paper.jar e server-icon.png tramite `paper.rs` se non presenti
+- **Flag `--exec-commands`** — forza l'esecuzione degli startup_commands anche se `.minipot.startup_done` è presente
+- **Marker `.minipot.startup_done`** — scritto dopo la prima esecuzione degli startup_commands; ai successivi avvii i comandi vengono saltati finché non si fa `minipot remove` o si usa `--exec-commands`
 
 ### `src/commands/stop.rs`
 - Legge PID da `.minipot.pid`
@@ -72,12 +77,24 @@ minipot-cli/
 - `execute(restart: bool)` — se restart=true scrive `.minipot.restart` prima di killare
 - Costanti: `PID_FILE = ".minipot.pid"`, `RESTART_MARKER = ".minipot.restart"`
 
+### `src/commands/prepare.rs`
+- `prepare_server(config, server_dir)` — funzione pubblica condivisa da `prepare::execute()` e `run::execute()`
+  - [1/3] Crea `minipot-server/` e `plugins/`, scrive `eula.txt` se non esiste
+  - [2/3] Scarica `paper.jar` tramite `paper::download_paper_jar()` (con progress bar)
+  - [3/3] Scarica `server-icon.png` (non fatale se fallisce)
+- `execute()` — entry point per `minipot prepare`: carica config, chiama `prepare_server`, poi `sync::execute()` (non fatale)
+- **Richiede `minipot.yml`** — errore esplicito se non esiste (exit code 1). Il check va fatto prima di chiamarlo.
+
+### `src/commands/remove.rs`
+- Chiede conferma `[y/N]` all'utente
+- Se confermato, chiama `fs::remove_dir_all(server_dir)` su `minipot-server/`
+
 ### `src/commands/sync.rs`
-- Cerca il JAR più recente per timestamp in `build/libs/` (Gradle)
+- Cerca il JAR più recente per timestamp in `build/libs/` (Gradle) e `target/` (Maven)
+- Vince il JAR con timestamp di modifica più recente tra le due directory; directory mancante ignorata
 - Apre il JAR come archivio ZIP, legge `plugin.yml` interno, estrae il campo `name:`
 - Rimuove versioni precedenti dello stesso plugin da `plugins/`
 - Copia il nuovo JAR in `minipot-server/plugins/`
-- Supporta sia Gradle (`build/libs/`) che Maven (`target/`) — vince il JAR più recente per timestamp
 
 ### `src/commands/bot.rs`
 - Stub non implementato. Definisce `BotAction` (Spawn, List, Stop) e stampa placeholder.
@@ -91,6 +108,7 @@ minipot-cli/
 |---|---|---|
 | `.minipot.pid` | `minipot-server/` | PID del processo Java, scritto da `run.rs`, letto da `stop.rs` |
 | `.minipot.restart` | `minipot-server/` | Marker restart: `stop.rs` lo scrive, `run.rs` lo detecta al riavvio |
+| `.minipot.startup_done` | `minipot-server/` | Marker startup commands: scritto da `run.rs` dopo la prima esecuzione; se presente, i comandi vengono saltati ai successivi avvii. Rimosso implicitamente da `minipot remove` insieme all'intera cartella. |
 
 ---
 
@@ -121,8 +139,7 @@ minipot-cli/
   - REST per: start/stop server, gestione preset, spawn bot
 
 ### Priorità media
-- `run.rs` — progress bar per download Paper
-- `run.rs` — progress bar per download Paper
+- `run.rs` — output Paper nel terminale ha ancora gestione stdin/stdout basica; valutare log colorati
 
 ### Priorità bassa (post-v1)
 - `minipot test` — comando headless CI/CD
