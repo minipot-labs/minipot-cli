@@ -1,0 +1,53 @@
+// Preso da mcman src/app/caching.rs — struttura identica, namespace cambiato in "minipot".
+
+use std::{
+    fs::File,
+    io::{BufReader, BufWriter},
+    path::PathBuf,
+};
+
+use anyhow::{Context, Result};
+use serde::{de::DeserializeOwned, Serialize};
+
+pub struct Cache(pub PathBuf);
+
+impl Cache {
+    pub fn cache_root() -> Option<PathBuf> {
+        Some(dirs::cache_dir()?.join("minipot"))
+    }
+
+    pub fn get(namespace: &str) -> Option<Self> {
+        let dir = Self::cache_root()?.join(namespace);
+        Some(Self(dir))
+    }
+
+    pub fn path(&self, path: &str) -> PathBuf {
+        self.0.join(path)
+    }
+
+    pub fn exists(&self, path: &str) -> bool {
+        self.path(path).exists()
+    }
+
+    pub fn get_json<T: DeserializeOwned>(&self, path: &str) -> Result<T> {
+        let file = File::open(self.0.join(path))?;
+        let reader = BufReader::new(file);
+        Ok(serde_json::from_reader(reader)?)
+    }
+
+    pub fn try_get_json<T: DeserializeOwned>(&self, path: &str) -> Result<Option<T>> {
+        Ok(if self.exists(path) {
+            Some(self.get_json(path)?)
+        } else {
+            None
+        })
+    }
+
+    pub fn write_json<T: Serialize>(&self, path: &str, data: &T) -> Result<()> {
+        std::fs::create_dir_all(self.path(path).parent().unwrap())?;
+        let writer = BufWriter::new(
+            File::create(self.path(path)).context(format!("Creating cache file at: {path}"))?,
+        );
+        Ok(serde_json::to_writer(writer, data)?)
+    }
+}

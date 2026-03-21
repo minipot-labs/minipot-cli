@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::downloadable::Downloadable;
+
 pub const CONFIG_FILE: &str = "minipot.yml";
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -17,7 +19,8 @@ pub struct ServerConfig {
     #[serde(rename = "type")]
     pub server_type: String,
     pub port: u16,
-    pub plugins: Vec<String>,
+    #[serde(default)]
+    pub plugins: Vec<Downloadable>,
     pub jvm_flags: Vec<String>,
     /// Comandi inviati automaticamente alla console Paper appena il server è pronto.
     #[serde(default)]
@@ -38,7 +41,7 @@ impl MinipotConfig {
                 version: "1.21.4".to_string(),
                 server_type: "paper".to_string(),
                 port: 25565,
-                plugins: vec![],
+                plugins: vec![],  // Vec<Downloadable>
                 jvm_flags: vec![
                     "-Xms512M".to_string(),
                     "-Xmx2G".to_string(),

@@ -1,6 +1,10 @@
+mod cache;
 mod commands;
 mod config;
+mod downloadable;
+mod lock;
 mod paper;
+mod sources;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -76,7 +80,28 @@ server:
   # Port the server will listen on.
   port: 25565
 
-  # Extra plugin JARs to pre-install before first startup (coming soon).
+  # Dependency plugins to pre-install in the dev server before first startup.
+  # Supports Modrinth, Hangar (official PaperMC registry), GitHub Releases, and direct URLs.
+  # On first run, "version: latest" is resolved to the exact build and pinned in minipot.lock.
+  # Commit minipot.lock so every teammate gets the exact same versions.
+  #
+  # Examples:
+  #   plugins:
+  #     - type: modrinth       # modrinth.com — most popular registry
+  #       id: vault
+  #       version: latest
+  #
+  #     - type: hangar         # hangar.papermc.io — official PaperMC registry
+  #       id: LuckPerms/LuckPerms
+  #       version: latest
+  #
+  #     - type: ghrel          # GitHub Releases
+  #       repo: MilkBowl/Vault
+  #       tag: latest
+  #       asset: Vault.jar
+  #
+  #     - type: url            # direct download, no pinning
+  #       url: https://example.com/myplugin.jar
   plugins: []
 
   # JVM flags passed to the Paper server process.
@@ -120,12 +145,43 @@ fn cmd_init() -> Result<()> {
     std::fs::write(CONFIG_FILE, MINIPOT_YML_TEMPLATE)
         .context("Failed to write minipot.yml")?;
 
+    update_gitignore()?;
+
     println!("Project initialized.");
     println!();
     println!("Next steps:");
     println!("  1. Open minipot.yml and set the Paper version (e.g. \"1.21.4\")");
     println!("  2. Run `minipot run` to download Paper and start the server");
     println!("  3. Run `minipot sync` after building to deploy your plugin");
+    println!("  4. Commit minipot.yml and minipot.lock to version control");
+    Ok(())
+}
+
+fn update_gitignore() -> Result<()> {
+    const GITIGNORE: &str = ".gitignore";
+    const ENTRY: &str = "minipot-server/";
+
+    let current = if Path::new(GITIGNORE).exists() {
+        std::fs::read_to_string(GITIGNORE).context("Failed to read .gitignore")?
+    } else {
+        String::new()
+    };
+
+    if current.lines().any(|l| l.trim() == ENTRY) {
+        return Ok(());
+    }
+
+    let separator = if current.is_empty() || current.ends_with('\n') {
+        ""
+    } else {
+        "\n"
+    };
+    let addition = format!(
+        "{separator}\n# minipot — generated server environment (not committed)\n{ENTRY}\n"
+    );
+
+    std::fs::write(GITIGNORE, current + &addition).context("Failed to write .gitignore")?;
+    println!("  .gitignore updated (minipot-server/ excluded).");
     Ok(())
 }
 
