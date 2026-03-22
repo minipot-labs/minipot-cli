@@ -11,6 +11,9 @@ pub const LOCK_FILE: &str = "minipot.lock";
 /// Va committato nel repository insieme a minipot.yml.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct MinipotLock {
+    /// Versione MC a cui si riferisce il lock (es. "1.21.4"). Se diversa da minipot.yml → ri-risoluzione.
+    #[serde(default)]
+    pub paper_version: String,
     pub paper_build: u32,
     pub paper_sha256: String,
     pub paper_url: String,

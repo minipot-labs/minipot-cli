@@ -38,6 +38,7 @@ pub fn prepare_server(config: &MinipotConfig, server_dir: &Path) -> Result<()> {
     let mut lock = MinipotLock::load()?.unwrap_or_else(|| {
         // Placeholder: verrà popolato subito sotto
         MinipotLock {
+            paper_version: String::new(),
             paper_build: 0,
             paper_sha256: String::new(),
             paper_url: String::new(),
@@ -45,13 +46,23 @@ pub fn prepare_server(config: &MinipotConfig, server_dir: &Path) -> Result<()> {
         }
     });
 
-    let (paper_url, paper_sha256) = if lock.paper_build != 0 {
+    let version_changed = lock.paper_version != config.server.version;
+
+    let (paper_url, paper_sha256) = if lock.paper_build != 0 && !version_changed {
         println!("  Using locked build #{} (minipot.lock).", lock.paper_build);
         (lock.paper_url.clone(), lock.paper_sha256.clone())
     } else {
-        println!("  No lock found — resolving latest Paper build...");
+        if version_changed && lock.paper_build != 0 {
+            println!(
+                "  Version changed ({} → {}) — re-resolving Paper build...",
+                lock.paper_version, config.server.version
+            );
+        } else {
+            println!("  No lock found — resolving latest Paper build...");
+        }
         let build = resolve_latest_build(&config.server.version)?;
         println!("  Resolved build #{}.", build.build);
+        lock.paper_version = config.server.version.clone();
         lock.paper_build = build.build;
         lock.paper_sha256 = build.sha256.clone();
         lock.paper_url = build.url.clone();
