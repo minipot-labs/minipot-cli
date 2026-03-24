@@ -24,6 +24,8 @@ minipot-cli/
 │   ├── config.rs           — MinipotConfig, lettura/scrittura minipot.yml
 │   ├── lock.rs             — MinipotLock + LockedPlugin, lettura/scrittura minipot.lock
 │   ├── paper.rs            — PaperMC API ufficiale, resolve_latest_build(), download_paper_jar() con SHA256
+│   ├── java.rs             — mapping Paper version → Java major (17/21/25)
+│   ├── jbr.rs              — download/install/estrazione JetBrains Runtime da GitHub (DCEVM integrato)
 │   ├── downloadable.rs     — Downloadable enum, SourceContext, ResolvedFile, CacheStrategy, Resolvable trait
 │   ├── cache.rs            — Cache struct (~/.cache/minipot/), get/exists/read/write JSON
 │   ├── sources/
@@ -136,6 +138,24 @@ minipot-cli/
 - `execute()` — entry point per `minipot prepare`
 - **Richiede `minipot.yml`** — errore esplicito se non esiste
 
+### `src/java.rs`
+- `java_version_for_paper(paper_version: &str) -> u32` — mapping versione Paper → Java major richiesto
+  - 1.18–1.20.4 → 17 · 1.20.5+ → 21 · 1.26+ → 25
+  - Usato da `run.rs` in modalità debug per scegliere quale JBR scaricare
+
+### `src/jbr.rs`
+- **Cache JBR:** `~/.minipot/jbr/jbr-{version}/` — **separata** da `~/.cache/minipot/` (plugin deps) per evitare cancellazioni accidentali con `minipot remove`
+- `jbr_dir(java_version)` → `PathBuf` alla directory di installazione
+- `java_bin(java_version)` → path al binario `bin/java` (o `bin/java.exe` su Windows)
+- `is_installed(java_version) -> bool` — controlla che il binario esista
+- `ensure_installed(java_version) -> Result<PathBuf>` — entry point pubblico: installa se mancante, ritorna path al binario
+- `find_latest_release(java_version)` — pagina GitHub API (`/repos/JetBrains/JetBrainsRuntime/releases`) cercando tag con prefisso `jbr-release-{major}.`; Java 17 è su pagina 2+ (100 release per pagina, fino a 5 pagine)
+- `parse_tag("jbr-release-21.0.10b1163.110")` → `("21.0.10", "1163.110")`
+- `download_and_extract()` — scarica archivio, estrae in temp dir, trova root JBR (directory con `bin/`), sposta al path finale
+- `extract_archive()` — `#[cfg(unix)]` usa `flate2::GzDecoder` + `tar::Archive`; `#[cfg(windows)]` usa `zip::ZipArchive`
+- URL archivio: `https://cache-redirector.jetbrains.com/intellij-jbr/jbr-{java_str}-{linux|windows}-x64-b{build}.{tar.gz|zip}`
+- **Nota:** variante `jbr_dcevm` non più necessaria — DCEVM è integrato nel JBR standard da JBR 17+
+
 ### `src/commands/run.rs`
 - Avvia il processo Java con JVM flags da config
 - Scrive PID in `.minipot.pid` (nella server_dir)
@@ -144,6 +164,9 @@ minipot-cli/
 - Restart loop: controlla marker `.minipot.restart` dopo shutdown, se presente riavvia
 - **Flag `--exec-commands`** — forza l'esecuzione degli startup_commands anche se `.minipot.startup_done` è presente
 - **Marker `.minipot.startup_done`** — scritto dopo la prima esecuzione degli startup_commands
+- **Flag `--debug`** — attiva modalità debug hot-swap: scarica JBR via `jbr::ensure_installed()`, usa quel binario Java invece di `java` di sistema
+- **Flag `--debug-port <u16>`** (default `5005`) — porta JDWP; aggiunge `-XX:+AllowEnhancedClassRedefinition` e `-agentlib:jdwp=transport=dt_socket,server=n,suspend=n,address=localhost:{port}` agli JVM args
+- Modello JDWP invertito: `server=n` → Paper si connette a IntelliJ (che è già in ascolto), eliminando timing issues
 
 ### `src/commands/stop.rs`
 - Legge PID da `.minipot.pid`
@@ -235,12 +258,15 @@ Il linker è configurato in `.cargo/config.toml`. Il binario è standalone — n
 | `tokio 1` (rt-multi-thread, fs, time) | Runtime async per download plugin parallelo |
 | `dirs 5` | Percorso cache OS (`~/.cache/minipot/`) |
 | `indicatif 0.17` | Progress bar download |
+| `flate2 1` *(unix only)* | Decompressione `.tar.gz` archivi JBR |
+| `tar 0.4` *(unix only)* | Estrazione archivi JBR su Linux/macOS |
 
 ---
 
 ## Prossimi step pianificati
 
 ### Priorità alta
+- ✅ **Hot-swap debug** (`--debug`, `--debug-port`) — implementato con JBR + DCEVM (2026-03-25)
 - **`bot.rs`** — implementazione reale: subprocess Node.js con script Mineflayer
   - Direzione: generazione AI (LLM via tokio) partendo da linguaggio naturale
   - Il developer descrive lo scenario → Minipot legge `plugin.yml` → chiama LLM → esegue script sandboxato
