@@ -17,7 +17,7 @@ const SERVER_READY_SIGNAL: &str = "]: Done (";
 /// l'utente non abbia rimosso il server con `minipot remove`).
 const STARTUP_DONE_MARKER: &str = ".minipot.startup_done";
 
-pub fn execute(force_exec_commands: bool) -> Result<()> {
+pub fn execute(force_exec_commands: bool, debug: bool, debug_port: u16) -> Result<()> {
     let config = MinipotConfig::load()?;
 
     if config.server.version.trim().is_empty() {
@@ -31,8 +31,30 @@ pub fn execute(force_exec_commands: bool) -> Result<()> {
 
     prepare_server(&config, &server_dir)?;
 
+    // ── Determina il binario Java da usare ────────────────────────────────────
+    let java_binary: String;
+    if debug {
+        let java_version = crate::java::java_version_for_paper(&config.server.version);
+        let bin = crate::jbr::ensure_installed(java_version)?;
+        println!();
+        println!("⚡ Debug mode: using JetBrains Runtime {java_version} (DCEVM)");
+        println!("  → {}", bin.display());
+        println!("  → JDWP connecting to localhost:{debug_port}");
+        println!("  → Hot-swap enabled: -XX:+AllowEnhancedClassRedefinition");
+        println!();
+        java_binary = bin.to_string_lossy().into_owned();
+    } else {
+        java_binary = "java".to_string();
+    }
+
     // ── Loop avvio (gestisce anche restart) ───────────────────────────────────
     let mut java_args: Vec<String> = config.server.jvm_flags.clone();
+    if debug {
+        java_args.push("-XX:+AllowEnhancedClassRedefinition".to_string());
+        java_args.push(format!(
+            "-agentlib:jdwp=transport=dt_socket,server=n,suspend=n,address=localhost:{debug_port}"
+        ));
+    }
     java_args.extend(["-jar".to_string(), "paper.jar".to_string(), "nogui".to_string()]);
 
     let pid_path = server_dir.join(PID_FILE);
@@ -63,14 +85,14 @@ pub fn execute(force_exec_commands: bool) -> Result<()> {
         }
         println!();
 
-        let mut child = Command::new("java")
+        let mut child = Command::new(&java_binary)
             .args(&java_args)
             .current_dir(&server_dir)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .spawn()
-            .context("[Minipot] Failed to launch java — make sure it is installed and in PATH")?;
+            .with_context(|| format!("[Minipot] Failed to launch {java_binary}"))?;
 
         // Scrivi il PID così `minipot stop` e `minipot restart` possono trovare il processo
         fs::write(&pid_path, child.id().to_string())

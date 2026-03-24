@@ -2,6 +2,8 @@ mod cache;
 mod commands;
 mod config;
 mod downloadable;
+mod java;
+mod jbr;
 mod lock;
 mod paper;
 mod sources;
@@ -35,6 +37,12 @@ enum Command {
         /// Force startup commands to run even if already executed in a previous session
         #[arg(long)]
         exec_commands: bool,
+        /// Start the server with DCEVM hot-swap support (downloads JBR if needed)
+        #[arg(long)]
+        debug: bool,
+        /// JDWP port IntelliJ will listen on (default: 5005)
+        #[arg(long, default_value = "5005")]
+        debug_port: u16,
     },
     /// Stop the running Paper server gracefully
     Stop,
@@ -194,7 +202,9 @@ fn main() {
     let result = match cli.command {
         Command::Init => cmd_init(),
         Command::Prepare => commands::prepare::execute(),
-        Command::Run { exec_commands } => commands::run::execute(exec_commands),
+        Command::Run { exec_commands, debug, debug_port } => {
+            commands::run::execute(exec_commands, debug, debug_port)
+        }
         Command::Stop => commands::stop::execute(false),
         Command::Restart => commands::stop::execute(true),
         Command::Sync => commands::sync::execute(),
