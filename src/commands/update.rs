@@ -21,9 +21,9 @@ struct Asset {
 
 fn asset_name() -> &'static str {
     if cfg!(target_os = "windows") {
-        "minipot-windows-x86_64.exe"
+        "minipot-x86_64-pc-windows-gnu.exe"
     } else {
-        "minipot-linux-x86_64"
+        "minipot-x86_64-unknown-linux-gnu"
     }
 }
 
