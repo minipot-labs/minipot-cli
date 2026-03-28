@@ -52,21 +52,8 @@ enum Command {
     Sync,
     /// Remove the local server directory (asks for confirmation)
     Remove,
-    /// Manage Mineflayer bots for player simulation
-    Bot {
-        #[command(subcommand)]
-        action: BotAction,
-    },
-}
-
-#[derive(Subcommand)]
-enum BotAction {
-    /// Spawn a new bot
-    Spawn { name: String },
-    /// List active bots
-    List,
-    /// Stop a bot
-    Stop { name: String },
+    /// Update minipot to the latest release from GitHub
+    Update,
 }
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
@@ -133,15 +120,6 @@ server:
   #     - gamerule doDaylightCycle false
   #     - gamerule doWeatherCycle false
   startup_commands: []
-
-# Mineflayer bots to simulate player behaviour during development.
-# Each bot can optionally run a script from the Minipot Marketplace.
-#
-# Example:
-#   bots:
-#     - name: tester
-#       script: basic-movement.js
-bots: []
 "#;
 
 fn cmd_init() -> Result<()> {
@@ -209,11 +187,7 @@ fn main() {
         Command::Restart => commands::stop::execute(true),
         Command::Sync => commands::sync::execute(),
         Command::Remove => commands::remove::execute(),
-        Command::Bot { action } => commands::bot::execute(match action {
-            BotAction::Spawn { name } => commands::bot::BotAction::Spawn { name },
-            BotAction::List => commands::bot::BotAction::List,
-            BotAction::Stop { name } => commands::bot::BotAction::Stop { name },
-        }),
+        Command::Update => commands::update::execute(),
     };
 
     if let Err(e) = result {
